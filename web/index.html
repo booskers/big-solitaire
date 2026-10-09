@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0f4a33">
+<title>Großes Solitär</title>
+<style>
+:root{
+  --felt:#0f4a33; --felt-dark:#0a3524;
+  --ink:#111; --red:#c8102e; --hi:#ffd60a;
+  --panel:#fffdf5; --blue:#0b4fb3;
+  --cw:70px; --ch:95px; --fs:29px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--felt);
+  font-family:Roboto,"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);
+  -webkit-user-select:none;user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+body{background:radial-gradient(ellipse at 50% 40%,#13583d 0%,var(--felt) 55%,var(--felt-dark) 100%)}
+#board{position:fixed;inset:0}
+
+/* empty places on the table */
+.slot{position:absolute;left:0;top:0;width:var(--cw);height:var(--ch);border-radius:calc(var(--cw)*.1);
+  border:3px dashed rgba(255,255,255,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:rgba(255,255,255,.85);font-weight:800;font-size:calc(var(--cw)*.42);line-height:1;z-index:0}
+.slot small{font-size:max(15px,calc(var(--cw)*.2));font-weight:700;margin-top:4px}
+.slot.waste{border-color:rgba(255,255,255,.25)}
+.slot.hl{border:4px solid var(--hi);box-shadow:0 0 16px 4px rgba(255,214,10,.75);color:var(--hi)}
+
+/* cards */
+.card{position:absolute;left:0;top:0;width:var(--cw);height:var(--ch);transition:transform .24s ease;will-change:transform}
+.card.dragging{transition:none}
+.card .in{position:absolute;inset:0;border-radius:calc(var(--cw)*.1);overflow:hidden}
+.card.up .in{background:#fff;border:2px solid #222;box-shadow:0 1px 3px rgba(0,0,0,.45)}
+.card.up.red.tint .in{background:#fff0f2}
+.card:not(.up) .in{border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.16) 0 5px,transparent 5px 11px),#1d3f8f}
+.card:not(.up) .face{display:none}
+.face{position:absolute;inset:0;color:var(--ink)}
+.red .face{color:var(--red)}
+.face .rk{position:absolute;left:5%;top:2px;font-size:var(--fs);font-weight:900;line-height:1;letter-spacing:-.04em}
+.face .rk.ten{letter-spacing:-.12em;left:2%}
+.face .st{position:absolute;right:5%;top:4px;width:calc(var(--fs)*.78);height:calc(var(--fs)*.78);fill:currentColor}
+.face .big{position:absolute;left:50%;bottom:7%;width:calc(var(--ch)*.42);height:calc(var(--ch)*.42);transform:translateX(-50%);fill:currentColor}
+.card.dragging .in{box-shadow:0 10px 26px rgba(0,0,0,.6)}
+.card.hl .in{box-shadow:0 0 0 4px var(--hi),0 0 18px 6px rgba(255,214,10,.8)}
+.card.bad .in{animation:shake .4s}
+@keyframes shake{0%,100%{transform:none}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+
+#stockN{position:absolute;left:0;top:0;z-index:400;background:#000;color:#fff;border:2px solid #fff;border-radius:999px;
+  font-weight:800;font-size:max(16px,calc(var(--cw)*.24));padding:1px 8px;pointer-events:none;transform:translate(-50%,-50%)}
+
+/* the three big buttons */
+.tb{position:absolute;left:0;top:0;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:var(--panel);color:#111;border:3px solid #000;border-radius:14px;font:inherit;font-weight:800;
+  font-size:max(16px,min(20px,calc(var(--cw)*.235)));padding:0 2px;box-shadow:0 2px 4px rgba(0,0,0,.4);touch-action:manipulation}
+.tb svg{width:min(34px,45%);height:auto;max-height:45%;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.tb:active{transform:translateY(2px)}
+.tb[disabled]{opacity:.45}
+#bHint{background:var(--hi)}
+#bHint.pulse{animation:pulse 1.2s ease-in-out 4}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,214,10,.9)}50%{box-shadow:0 0 0 12px rgba(255,214,10,0)}}
+
+/* short messages */
+#toast{position:fixed;left:50%;bottom:14px;transform:translate(-50%,30px);opacity:0;pointer-events:none;z-index:3000;
+  background:rgba(0,0,0,.9);color:#fff;border:3px solid var(--hi);border-radius:16px;padding:12px 22px;
+  font-size:22px;font-weight:700;line-height:1.3;text-align:center;max-width:min(720px,80vw);transition:opacity .2s,transform .2s}
+#toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto;cursor:pointer}
+.close-hint{font-size:17px;color:#555;margin-top:6px}
+
+#hand{position:fixed;left:0;top:0;z-index:4000;font-size:60px;line-height:1;pointer-events:none;display:none;
+  filter:drop-shadow(0 0 2px #000) drop-shadow(0 0 2px #000) drop-shadow(0 3px 6px rgba(0,0,0,.6))}
+
+/* dialogs */
+#dlg{position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;padding:8px}
+#dlg.open{display:flex}
+.panel{background:var(--panel);color:#111;border-radius:20px;border:3px solid #000;padding:16px 22px 16px;
+  width:min(820px,96vw);max-height:calc(100vh - 16px);overflow:auto;font-size:21px;line-height:1.35;touch-action:pan-y}
+.panel h2{margin:0 0 6px;font-size:28px;line-height:1.15}
+.panel p{margin:0 0 8px}
+.panel .row{display:flex;gap:22px;align-items:center}
+.panel .txt{flex:1;min-width:0}
+.btns{display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
+button.big{min-height:60px;min-width:150px;padding:0 24px;border-radius:14px;border:3px solid #111;background:#fff;color:#111;
+  font:inherit;font-size:22px;font-weight:800;touch-action:manipulation}
+button.big.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+button.big:active{transform:translateY(2px)}
+.dots{display:flex;gap:8px;justify-content:center;margin-top:6px}
+.dots i{width:12px;height:12px;border-radius:50%;background:#bbb}
+.dots i.on{background:#111}
+.menu{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.menu button.big{width:100%;min-height:68px}
+.sets{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin-top:6px}
+.set{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:62px;border:2px solid #ccc;border-radius:14px;padding:6px 12px;background:#fff;font:inherit;font-size:20px;font-weight:700;text-align:left;color:#111}
+.sw{flex:none;width:72px;height:40px;border-radius:20px;background:#888;position:relative;border:2px solid #111}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #111;transition:left .15s}
+.set[aria-checked=true] .sw{background:#1a7f37}
+.set[aria-checked=true] .sw::after{left:35px}
+.sw b{position:absolute;font-size:13px;color:#fff;top:9px}
+.stat{font-size:26px;font-weight:800}
+
+/* little pictures in the guide */
+.demo{position:relative;width:200px;height:132px;flex:none}
+.mc{position:absolute;width:64px;height:88px;border-radius:8px;background:#fff;border:2px solid #222;color:#111;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.mc.red{color:var(--red)}
+.mc b{position:absolute;left:4px;top:2px;font-size:28px;font-weight:900;line-height:1}
+.mc .s{position:absolute;right:4px;top:5px;width:22px;height:22px;fill:currentColor}
+.mc .bs{position:absolute;left:50%;bottom:6px;width:36px;height:36px;transform:translateX(-50%);fill:currentColor}
+.mc.back{background:repeating-linear-gradient(45deg,rgba(255,255,255,.16) 0 5px,transparent 5px 11px),#1d3f8f;border:3px solid #fff;outline:2px solid #222}
+.felt{background:var(--felt);border-radius:14px}
+.dh{position:absolute;left:0;top:0;font-size:46px;line-height:1;filter:drop-shadow(0 0 2px #000);opacity:0}
+.tapdemo .src{left:120px;top:12px;animation:dsrc 3.4s infinite}
+.tapdemo .dst{left:16px;top:12px}
+.tapdemo .dh{animation:dhand 3.4s infinite}
+@keyframes dsrc{0%,36%{transform:none;opacity:1}58%,88%{transform:translate(-104px,34px);opacity:1}94%{transform:translate(-104px,34px);opacity:0}95%{transform:none;opacity:0}100%{transform:none;opacity:1}}
+@keyframes dhand{0%{transform:translate(170px,120px);opacity:0}12%{opacity:1}24%{transform:translate(140px,46px) scale(1)}29%{transform:translate(140px,46px) scale(.82)}34%{transform:translate(140px,46px) scale(1);opacity:1}46%,100%{transform:translate(170px,110px);opacity:0}}
+.deckdemo .deck{left:16px;top:12px}
+.deckdemo .nw{left:120px;top:12px;animation:dnew 3.4s infinite}
+.deckdemo .dh{animation:dhand2 3.4s infinite}
+@keyframes dnew{0%,34%{opacity:0;transform:translateX(-104px)}52%,88%{opacity:1;transform:none}100%{opacity:0;transform:none}}
+@keyframes dhand2{0%{transform:translate(70px,120px);opacity:0}12%{opacity:1}22%{transform:translate(36px,46px) scale(1)}27%{transform:translate(36px,46px) scale(.82)}32%{transform:translate(36px,46px) scale(1);opacity:1}44%,100%{transform:translate(60px,110px);opacity:0}}
+.goaldemo .mc:nth-child(1){left:10px;top:22px}
+.goaldemo .mc:nth-child(2){left:52px;top:22px}
+.goaldemo .mc:nth-child(3){left:94px;top:22px}
+.goaldemo .mc:nth-child(4){left:136px;top:22px}
+.rulesdemo .mc:nth-child(1){left:68px;top:4px}
+.rulesdemo .mc:nth-child(2){left:68px;top:40px}
+.rulesdemo .mc:nth-child(3){left:68px;top:76px;height:52px}
+.rulesdemo{height:136px}
+
+/* phone held upright */
+#rotate{position:fixed;inset:0;z-index:9000;background:var(--felt);color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;font-size:28px;font-weight:800;padding:24px;gap:24px}
+#rotate .ph{width:70px;height:120px;border:6px solid #fff;border-radius:14px;animation:turn 2.4s ease-in-out infinite}
+@keyframes turn{0%,20%{transform:rotate(0)}55%,100%{transform:rotate(-90deg)}}
+@media (orientation:portrait){#rotate{display:flex}}
+@media (prefers-reduced-motion:reduce){.card{transition-duration:.12s}}
+.upd{margin-top:14px;padding-top:10px;border-top:2px solid rgba(0,0,0,.18)}
+.upd h3{margin:0 0 4px;font-size:1.1em}
+.upd p{margin:4px 0 10px}
+.upd .big{width:100%;margin:0 0 10px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="su0" viewBox="0 0 100 100"><path d="M50 4C36 24 6 40 6 61c0 13 10 22 22 22 8 0 14-4 18-10-1 10-6 17-14 23h36c-8-6-13-13-14-23 4 6 10 10 18 10 12 0 22-9 22-22C94 40 64 24 50 4z"/></symbol>
+    <symbol id="su1" viewBox="0 0 100 100"><path d="M50 92C22 70 4 52 4 31 4 16 15 6 29 6c10 0 17 6 21 14 4-8 11-14 21-14 14 0 25 10 25 25 0 21-18 39-46 61z"/></symbol>
+    <symbol id="su2" viewBox="0 0 100 100"><path d="M50 2 88 50 50 98 12 50z"/></symbol>
+    <symbol id="su3" viewBox="0 0 100 100"><circle cx="50" cy="27" r="21"/><circle cx="26" cy="58" r="21"/><circle cx="74" cy="58" r="21"/><path d="M45 52c0 20-5 32-15 44h40c-10-12-15-24-15-44z"/></symbol>
+  </defs>
+</svg>
+
+<div id="board" aria-label="Kartentisch"></div>
+<button class="tb" id="bUndo" aria-label="Letzten Zug zurücknehmen">
+  <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Zurück</button>
+<button class="tb" id="bHint" aria-label="Einen guten Zug zeigen">
+  <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21.5h4M12 2.5a6.5 6.5 0 0 0-4 11.6c.8.7 1 1.5 1 2.4h6c0-.9.2-1.7 1-2.4a6.5 6.5 0 0 0-4-11.6z"/></svg>Tipp</button>
+<button class="tb" id="bMenu" aria-label="Menü: neues Spiel, Hilfe und Einstellungen">
+  <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Menü</button>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="hand" aria-hidden="true">👆</div>
+<div id="dlg" role="dialog" aria-modal="true"></div>
+<div id="rotate"><div class="ph"></div>Bitte drehen Sie Ihr Handy quer,<br>um zu spielen.</div>
+
+<script>
+'use strict';
+/* ------------------------------------------------------------------ basics */
+const $ = s => document.querySelector(s);
+// English or German, following the phone's language
+const DE = /^de\b/i.test(new URLSearchParams(location.search).get('lang') || navigator.language || '');   // ?lang=de / ?lang=en tries the other one
+const T = (de, en) => DE ? de : en;
+document.documentElement.lang = DE ? 'de' : 'en';
+const board = $('#board');
+const RANKS = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', ...(DE ? ['B', 'D', 'K'] : ['J', 'Q', 'K'])];   // Bube, Dame, König
+const RANK_NAMES = DE ? ['', 'Ass', 'Zwei', 'Drei', 'Vier', 'Fünf', 'Sechs', 'Sieben', 'Acht', 'Neun', 'Zehn', 'Bube', 'Dame', 'König']
+  : ['', 'Ace', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Jack', 'Queen', 'King'];
+const SUIT_NAMES = DE ? ['Pik', 'Herz', 'Karo', 'Kreuz'] : ['spades', 'hearts', 'diamonds', 'clubs'];
+const isRed = s => s === 1 || s === 2;
+// "Herz-Sieben"; k = Fall (nom, acc, dat): "den Pik-Buben", "dem Kreuz-König"
+// English: "Seven of hearts", "the Seven of hearts"
+const nameOf = (c, k = 'nom') => DE ? SUIT_NAMES[c.s] + '-' + (c.r === 11 && k !== 'nom' ? 'Buben' : RANK_NAMES[c.r]) : RANK_NAMES[c.r] + ' of ' + SUIT_NAMES[c.s];
+const ART = { nom: { m: 'der', f: 'die', n: 'das' }, acc: { m: 'den', f: 'die', n: 'das' }, dat: { m: 'dem', f: 'der', n: 'dem' } };
+const the = (c, k = 'nom') => !DE ? 'the ' + nameOf(c) : ART[k][c.r === 1 ? 'n' : c.r === 11 || c.r === 13 ? 'm' : 'f'] + ' ' + nameOf(c, k);
+function load(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+const prefs = Object.assign({ coach: true, xl: false, tint: true, speak: false, sound: true, buzz: true, left: false }, load('bs-prefs') || {});
+const stats = Object.assign({ played: 0, won: 0 }, load('bs-stats') || {});
+const tipsSeen = load('bs-tips') || {};
+let INS = { l: 0, t: 0, r: 0, b: 0 };   // screen notch, from the Android app
+
+/* ------------------------------------------------------------------ the game state
+   stock: the deck (face down) · waste: cards turned over from it · f: 8 piles to build Ace→King · t: 9 table columns */
+let S = null;
+let U = [];            // undo: earlier states as JSON
+let busy = false;      // finishing by itself: taps wait
+let lastMoveAt = 0, stuckShownAt = -1;
+
+// Doppel-Klondike: two full decks (104 cards), 9 columns of 1 to 9 cards with the top one open, 8 foundations
+// (Ace to King by suit), the other 59 cards in the deck, turned one at a time and as often as you like
+function deal() {
+  const cards = [];
+  for (let id = 0; id < 104; id++) cards.push({ id, s: Math.floor(id / 13) % 4, r: id % 13 + 1, up: false });
+  for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
+  S = { stock: [], waste: [], f: [[], [], [], [], [], [], [], []], t: [[], [], [], [], [], [], [], [], []], moves: 0, won: false };
+  for (let i = 0; i < 9; i++) { for (let j = 0; j <= i; j++) S.t[i].push(cards.pop()); S.t[i][i].up = true; }
+  S.stock = cards;
+  U = [];
+}
+const pileOf = ref => ref.t === 's' ? S.stock : ref.t === 'w' ? S.waste : ref.t === 'f' ? S.f[ref.i] : S.t[ref.i];
+const last = p => p[p.length - 1];
+function locate(id) {
+  let i = S.stock.findIndex(c => c.id === id); if (i >= 0) return { ref: { t: 's' }, idx: i };
+  i = S.waste.findIndex(c => c.id === id); if (i >= 0) return { ref: { t: 'w' }, idx: i };
+  for (let k = 0; k < 8; k++) { i = S.f[k].findIndex(c => c.id === id); if (i >= 0) return { ref: { t: 'f', i: k }, idx: i }; }
+  for (let k = 0; k < 9; k++) { i = S.t[k].findIndex(c => c.id === id); if (i >= 0) return { ref: { t: 't', i: k }, idx: i }; }
+  return null;
+}
+const canStack = (c, onto) => onto && onto.up && isRed(c.s) !== isRed(onto.s) && onto.r === c.r + 1;
+function validRun(p, idx) {
+  for (let k = idx; k < p.length; k++) {
+    if (!p[k].up) return false;
+    if (k > idx && !canStack(p[k], p[k - 1])) return false;
+  }
+  return true;
+}
+function canPick(loc) {
+  const p = pileOf(loc.ref);
+  if (loc.ref.t === 'w' || loc.ref.t === 'f') return loc.idx === p.length - 1;
+  if (loc.ref.t === 't') return validRun(p, loc.idx);
+  return false;
+}
+function foundTarget(c) {   // which top pile takes this card
+  let empty = -1;
+  for (let k = 0; k < 8; k++) {
+    const t = last(S.f[k]);
+    if (!t) { if (empty < 0) empty = k; } else if (t.s === c.s && t.r === c.r - 1) return k;
+  }
+  return c.r === 1 ? (empty >= 0 ? empty : null) : null;
+}
+function tabTarget(c, fromCol, allowEmpty) {
+  for (let j = 0; j < 9; j++) if (j !== fromCol && S.t[j].length && canStack(c, last(S.t[j]))) return { t: 't', i: j };
+  if (allowEmpty && c.r === 13) for (let j = 0; j < 9; j++) if (j !== fromCol && !S.t[j].length) return { t: 't', i: j };
+  return null;
+}
+function legal(loc, to) {
+  const p = pileOf(loc.ref), c = p[loc.idx], n = p.length - loc.idx;
+  if (to.t === 'f') { if (n !== 1 || loc.ref.t === 'f') return false; const t = last(S.f[to.i]); return t ? t.s === c.s && t.r === c.r - 1 : c.r === 1; }
+  if (to.t === 't') { if (loc.ref.t === 't' && loc.ref.i === to.i) return false; const t = last(S.t[to.i]); return t ? canStack(c, t) : c.r === 13; }
+  return false;
+}
+function bestTarget(loc) {    // where a tapped card goes
+  const p = pileOf(loc.ref), c = p[loc.idx], single = loc.idx === p.length - 1;
+  if (single && loc.ref.t !== 'f') { const f = foundTarget(c); if (f != null) return { t: 'f', i: f }; }
+  const from = loc.ref.t === 't' ? loc.ref.i : -1;
+  // a King already at the bottom of its column gains nothing from an empty one
+  const allowEmpty = !(loc.ref.t === 't' && loc.idx === 0);
+  return tabTarget(c, from, allowEmpty);
+}
+const isWon = () => S.f.every(p => p.length === 13);
+
+/* ------------------------------------------------------------------ moves */
+function pushUndo() { U.push(JSON.stringify(S)); if (U.length > 300) U.shift(); }
+function doMove(from, idx, to) {
+  pushUndo();
+  const src = pileOf(from), dst = pileOf(to);
+  const moving = src.splice(idx);
+  dst.push(...moving);
+  if (from.t === 't' && src.length && !last(src).up) last(src).up = true;
+  S.moves++; lastMoveAt = performance.now();
+  for (const k in conf) conf[k] = 0;
+  sfx(to.t === 'f' ? 'found' : 'move'); buzz(35);
+  if (prefs.speak) {
+    const c = moving[0];
+    say(to.t === 'f' ? nameOf(c) + T(' nach oben', ', to the top') : dst.length > moving.length ? nameOf(c) + T(' auf ', ' on ') + the(dst[dst.length - moving.length - 1], 'acc') : nameOf(c) + T(' auf den freien Platz', ', to the empty space'));
+  }
+  after();
+}
+function drawCard() {
+  if (!S.stock.length && !S.waste.length) { toast(T('Der Stapel ist leer.', 'The deck is empty.')); return; }
+  pushUndo();
+  if (S.stock.length) { const c = S.stock.pop(); c.up = true; S.waste.push(c); if (prefs.speak) say(nameOf(c)); }
+  else { S.stock = S.waste.reverse().map(c => (c.up = false, c)); S.waste = []; toast(T('Der Stapel wird wieder umgedreht.', 'The deck is turned over again.')); }
+  S.moves++; lastMoveAt = performance.now();
+  for (const k in conf) conf[k] = 0;
+  sfx('draw'); buzz(30);
+  after();
+}
+function undo() {
+  if (busy) return;
+  if (!U.length) { toast(T('Es gibt nichts zurückzunehmen.', 'There is nothing to undo.')); return; }
+  S = JSON.parse(U.pop());
+  sfx('undo'); buzz(30);
+  render(); save(); stuckShownAt = -1;
+}
+function after() {
+  render(); save();
+  if (isWon()) return win();
+  // Aces go up by themselves: there is never a reason to keep one on the table
+  busy = true;
+  setTimeout(function autoAce() {
+    const srcs = [];
+    if (S.waste.length) srcs.push({ t: 'w' });
+    S.t.forEach((p, i) => p.length && srcs.push({ t: 't', i }));
+    for (const ref of srcs) {
+      const p = pileOf(ref), c = last(p);
+      if (c.up && c.r === 1) {
+        const f = foundTarget(c);
+        p.pop(); S.f[f].push(c);
+        if (ref.t === 't' && p.length && !last(p).up) last(p).up = true;
+        sfx('found'); render(); save();
+        setTimeout(autoAce, 300); return;
+      }
+    }
+    busy = false;
+    if (!checkFinish()) checkStuck();
+  }, 280);
+}
+function checkFinish() {
+  if (S.stock.length || S.waste.length || S.t.some(p => p.some(c => !c.up))) return false;
+  busy = true;
+  toast(T('Alle Karten liegen offen. Ich lege den Rest für Sie ab.', 'All cards are open. I will finish the game for you.'), 3500);
+  (function step() {
+    let best = null;
+    S.t.forEach((p, i) => { const c = last(p); if (c && foundTarget(c) != null && (!best || c.r < best.c.r)) best = { c, i }; });
+    if (!best) { busy = false; if (isWon()) win(); return; }
+    S.t[best.i].pop(); S.f[foundTarget(best.c)].push(best.c);
+    sfx('found'); render();
+    if (isWon()) { busy = false; save(); win(); return; }
+    setTimeout(step, 170);
+  })();
+  return true;
+}
+function checkStuck() {
+  if (S.won || computeHint() || stuckShownAt === S.moves || dlgOpen()) return;
+  stuckShownAt = S.moves;
+  dialog({
+    title: T('Kein Zug mehr gefunden', 'No more moves found'),
+    body: T('<p>Ich finde keinen Zug mehr, der weiterhilft.</p><p>Sie können einige Züge zurücknehmen und es anders versuchen – oder ein neues Spiel beginnen.</p>',
+      '<p>I cannot find a move that helps any more.</p><p>You can undo a few moves and try another way, or start a new game.</p>'),
+    buttons: [{ label: T('Weiter suchen', 'Keep looking') }, { label: T('Zug zurück', 'Undo'), fn: undo }, { label: T('Neues Spiel', 'New game'), primary: true, fn: newGame }]
+  });
+}
+function win() {
+  if (S.won) return;
+  S.won = true; stats.won++; store('bs-stats', stats); save();
+  sfx('win'); buzz([90, 80, 160]);
+  dialog({
+    title: T('Gewonnen! Sehr gut gemacht!', 'You won! Well done!'),
+    illus: '<div class="demo goaldemo felt">' + mini(1, 1) + mini(5, 0) + mini(9, 2) + mini(13, 3) + '</div>',
+    body: T(`<p>Alle Karten liegen oben auf den Ablagen.</p><p class="stat">Gewonnene Spiele: ${stats.won} von ${stats.played}</p>`,
+      `<p>Every card is on the top piles.</p><p class="stat">Games won: ${stats.won} of ${stats.played}</p>`),
+    buttons: [{ label: T('Schließen', 'Close') }, { label: T('Noch einmal spielen', 'Play again'), primary: true, fn: () => { startNew(); } }]
+  });
+}
+function startNew() { stats.played++; store("bs-stats", stats); deal(); stuckShownAt = -1; after(); }
+function newGame() {
+  if (S.moves > 0 && !S.won) {
+    dialog({ title: T('Neues Spiel beginnen?', 'Start a new game?'), body: T('<p>Die Karten werden neu gemischt und ausgeteilt. Dieses Spiel endet dann.</p>', '<p>The cards will be shuffled and dealt again. This game ends.</p>'),
+      buttons: [{ label: T('Nein, weiterspielen', 'No, keep playing') }, { label: T('Ja, neues Spiel', 'Yes, new game'), primary: true, fn: startNew }] });
+  } else startNew();
+}
+function save() { store('bs-game', { S, U: U.slice(-80) }); }
+window.saveNow = save;
+
+/* ------------------------------------------------------------------ hints */
+function computeHint() {
+  const tops = [];
+  if (S.waste.length) tops.push({ from: { t: 'w' }, idx: S.waste.length - 1 });
+  S.t.forEach((p, i) => p.length && tops.push({ from: { t: 't', i }, idx: p.length - 1 }));
+  // 1. anything that can go up to the top piles, lowest first
+  let best = null;
+  for (const m of tops) {
+    const c = pileOf(m.from)[m.idx]; if (!c.up) continue;
+    const f = foundTarget(c);
+    if (f != null && (!best || c.r < best.c.r)) best = { ...m, to: { t: 'f', i: f }, c };
+  }
+  if (best) return best;
+  // 2. a move that turns over a face-down card (the column with most hidden cards first)
+  const cand = [];
+  S.t.forEach((p, i) => {
+    const u = p.findIndex(c => c.up);
+    if (u > 0) { const to = tabTarget(p[u], i, true); if (to) cand.push({ from: { t: 't', i }, idx: u, to, n: u }); }
+  });
+  if (cand.length) { cand.sort((a, b) => b.n - a.n); return cand[0]; }
+  // 3. the turned-over card onto the table
+  if (S.waste.length) { const to = tabTarget(last(S.waste), -1, true); if (to) return { from: { t: 'w' }, idx: S.waste.length - 1, to }; }
+  // 4. move part of a column so the card under it can go up
+  for (let i = 0; i < 9; i++) {
+    const p = S.t[i];
+    for (let k = 1; k < p.length; k++) {
+      if (!p[k - 1].up || !validRun(p, k) || foundTarget(p[k - 1]) == null) continue;
+      const to = tabTarget(p[k], i, false); if (to) return { from: { t: 't', i }, idx: k, to };
+    }
+  }
+  // 5. empty a column when a King is waiting for the space
+  const kingWaiting = (S.waste.length && last(S.waste).r === 13) || S.t.some(p => { const u = p.findIndex(c => c.up); return u > 0 && p[u].r === 13; });
+  if (kingWaiting && !S.t.some(p => !p.length)) {
+    for (let i = 0; i < 9; i++) {
+      const p = S.t[i]; if (!p.length || !p[0].up || p[0].r === 13) continue;
+      const to = tabTarget(p[0], i, false); if (to) return { from: { t: 't', i }, idx: 0, to };
+    }
+  }
+  // 6. the deck, if a card in it can be used somewhere
+  if ([...S.stock, ...S.waste].some(c => foundTarget(c) != null || tabTarget(c, -1, true))) return { type: 'draw' };
+  return null;
+}
+function showHint() {
+  if (busy || S.won) return;
+  clearHL();
+  const h = computeHint();
+  if (!h) { stuckShownAt = -1; checkStuck(); return; }
+  sfx('hint');
+  if (h.type === 'draw') {
+    const r = rectOf({ t: 's' });
+    if (S.stock.length) { markStock(); toast(T('Tippen Sie auf den blauen Stapel, um eine neue Karte aufzudecken.', 'Tap the blue deck to turn over a new card.'), 5000); }
+    else { markStock(); toast(T('Tippen Sie auf den leeren Stapel, um die Karten wieder umzudrehen.', 'Tap the empty deck to turn the cards over again.'), 5000); }
+    handTap(r.x + G.cw / 2, r.y + G.ch / 2);
+    return;
+  }
+  const p = pileOf(h.from), c = p[h.idx];
+  p.slice(h.idx).forEach(x => E[x.id].classList.add('hl'));
+  const dst = pileOf(h.to), dt = last(dst);
+  let text;
+  if (h.to.t === 'f') { text = T(`Legen Sie ${the(c, 'acc')} auf die Ablagen oben.`, `Move ${the(c)} to the top piles.`); if (dt) E[dt.id].classList.add('hl'); else slots['F' + h.to.i].classList.add('hl'); }
+  else if (dt) { text = T(`Legen Sie ${the(c, 'acc')} auf ${the(dt, 'acc')}.`, `Move ${the(c)} onto ${the(dt)}.`); E[dt.id].classList.add('hl'); }
+  else { text = T(`Legen Sie ${the(c, 'acc')} auf den freien Platz.`, `Move ${the(c)} to the empty space.`); slots['T' + h.to.i].classList.add('hl'); }
+  toast(text + T('<br><small>Einfach einmal antippen.</small>', '<br><small>Just tap it once.</small>'), 6000, text);
+  const a = E[c.id], to = dt ? E[dt.id] : null;
+  const tr = h.to.t === 'f' ? { x: G.f[h.to.i].x, y: G.f[h.to.i].y } : dt ? { x: to._x, y: to._y } : G.t[h.to.i];
+  handMove(a._x + G.cw / 2, a._y + Math.min(G.ch / 2, G.fs), tr.x + G.cw / 2, tr.y + G.ch / 2);
+  hlTimer = setTimeout(clearHL, 7000);
+}
+let hlTimer = 0;
+function clearHL() {
+  clearTimeout(hlTimer);
+  document.querySelectorAll('.hl').forEach(e => e.classList.remove('hl'));
+  const h = $('#hand'); h.getAnimations().forEach(a => a.cancel()); h.style.display = 'none';
+}
+function markStock() { const c = last(S.stock); if (c) E[c.id].classList.add('hl'); else slots.S.classList.add('hl'); hlTimer = setTimeout(clearHL, 7000); }
+function handMove(x1, y1, x2, y2) {
+  const h = $('#hand'); h.style.display = 'block';
+  const at = (x, y, s = 1) => `translate(${x - 22}px,${y - 6}px) scale(${s})`;
+  h.animate([
+    { transform: at(x1, y1), opacity: 0, offset: 0 }, { transform: at(x1, y1), opacity: 1, offset: .1 },
+    { transform: at(x1, y1, .82), offset: .2 }, { transform: at(x1, y1), offset: .3 },
+    { transform: at(x2, y2), opacity: 1, offset: .75 }, { transform: at(x2, y2), opacity: 0, offset: 1 }
+  ], { duration: 2000, iterations: 3 }).onfinish = () => h.style.display = 'none';
+}
+function handTap(x, y) {
+  const h = $('#hand'); h.style.display = 'block';
+  const at = (s) => `translate(${x - 22}px,${y - 6}px) scale(${s})`;
+  h.animate([{ transform: at(1), opacity: 0 }, { transform: at(1), opacity: 1, offset: .3 }, { transform: at(.8), offset: .5 }, { transform: at(1), opacity: 1, offset: .7 }, { transform: at(1), opacity: 0 }],
+    { duration: 1300, iterations: 3 }).onfinish = () => h.style.display = 'none';
+}
+
+/* ------------------------------------------------------------------ layout and drawing */
+let G = {};
+const E = [];          // card elements by id
+const slots = {};
+function geom() {
+  const W = innerWidth, H = innerHeight;
+  const padL = 8 + INS.l, padR = 8 + INS.r, padT = 6 + INS.t, padB = 6 + INS.b;
+  const gap = Math.max(5, Math.round(W * .008));
+  let cw = Math.floor((W - padL - padR - 9 * gap) / 10);
+  let ch = Math.round(cw * 1.36);
+  const maxCh = Math.floor((H - padT - padB) * .29);
+  if (ch > maxCh) { ch = maxCh; cw = Math.floor(ch / 1.36); }
+  const x0 = padL + Math.floor((W - padL - padR - (10 * cw + 9 * gap)) / 2);
+  const col = c => x0 + (prefs.left ? 9 - c : c) * (cw + gap);
+  const fs = Math.round(cw * (prefs.xl ? .5 : .42));
+  const rowY = padT + ch + gap * 2;
+  G = { W, H, cw, ch, gap, fs, padB,
+    stock: { x: col(0), y: padT }, waste: { x: col(0), y: rowY }, menu: { x: col(9), y: padT },
+    f: [...Array(8)].map((_, i) => ({ x: col(1 + i), y: padT })),
+    t: [...Array(9)].map((_, i) => ({ x: col(1 + i), y: rowY })),
+    btnX: col(0), btnY: rowY + ch + gap * 2 };
+  G.btnH = Math.floor((H - padB - G.btnY - gap) / 2);
+  const st = document.documentElement.style;
+  st.setProperty('--cw', cw + 'px'); st.setProperty('--ch', ch + 'px'); st.setProperty('--fs', fs + 'px');
+  const pos = (el, x, y, w, h) => { el.style.transform = `translate(${x}px,${y}px)`; el.style.width = w + 'px'; el.style.height = h + 'px'; };
+  pos($('#bMenu'), G.menu.x, G.menu.y, cw, ch);
+  pos($('#bUndo'), G.btnX, G.btnY, cw, G.btnH);
+  pos($('#bHint'), G.btnX, G.btnY + G.btnH + gap, cw, G.btnH);
+  const sp = (k, p) => slots[k].style.transform = `translate(${p.x}px,${p.y}px)`;
+  sp('S', G.stock); sp('W', G.waste);
+  G.f.forEach((p, i) => sp('F' + i, p)); G.t.forEach((p, i) => sp('T' + i, p));
+}
+// the space after each card in a column. An open run is always in order (K, Q, J …), so when a column gets too long
+// its middle folds up: the run's first card and its last three stay readable
+function colGaps(i) {
+  const p = S.t[i], n = p.length;
+  const avail = G.H - G.padB - G.t[i].y - G.ch;
+  const UP = Math.round(G.fs * 1.15 + 6), FOLD = Math.max(8, Math.round(G.ch * .09));
+  const gaps = p.slice(0, -1).map(c => c.up ? UP : Math.max(8, Math.round(G.ch * .12)));
+  const sum = () => gaps.reduce((a, b) => a + b, 0);
+  if (sum() > avail) gaps.forEach((g, j) => { if (!p[j].up) gaps[j] = 5; });
+  const u = p.findIndex(c => c.up);
+  for (let j = u + 1; j <= n - 4 && sum() > avail; j++) gaps[j] = FOLD;
+  if (sum() > avail) { const k = avail / sum(); gaps.forEach((g, j) => gaps[j] = g * k); }
+  return gaps;
+}
+let zTimer = 0;
+function render() {
+  const now = performance.now();
+  let raised = false;
+  const place = (c, x, y, z, key) => {
+    const el = E[c.id];
+    el.classList.toggle('up', c.up);
+    el._x = x; el._y = y;
+    el.style.transform = `translate(${x}px,${y}px)`;
+    if (el._pile !== key) { if (el._pile !== undefined) el._raise = now + 320; el._pile = key; }
+    if (el._raise > now) { z += 1000; raised = true; }
+    el.style.zIndex = z;
+    const label = c.up ? nameOf(c) : T('verdeckte Karte', 'face-down card');
+    if (el._label !== label) { el._label = label; el.setAttribute('aria-label', label); }
+  };
+  S.stock.forEach((c, i) => place(c, G.stock.x, G.stock.y, i + 1, 's'));
+  S.waste.forEach((c, i) => place(c, G.waste.x, G.waste.y, i + 1, 'w'));
+  S.f.forEach((p, k) => p.forEach((c, i) => place(c, G.f[k].x, G.f[k].y, i + 1, 'f' + k)));
+  S.t.forEach((p, k) => {
+    const gaps = colGaps(k); let y = G.t[k].y;
+    p.forEach((c, i) => { place(c, G.t[k].x, y, i + 1, 't' + k); y += gaps[i] || 0; });
+  });
+  // the deck: how many cards are left, or "again" when it can be turned over
+  const n = $('#stockN');
+  n.textContent = S.stock.length; n.style.display = S.stock.length ? '' : 'none';
+  n.style.left = G.stock.x + G.cw / 2 + 'px'; n.style.top = G.stock.y + G.ch - 4 + 'px';
+  slots.S.innerHTML = S.waste.length ? '↻<small>' + T('nochmal', 'again') + '</small>' : '';
+  $('#bUndo').disabled = !U.length;
+  E.forEach(el => el.classList.toggle('tint', prefs.tint));
+  clearTimeout(zTimer);
+  if (raised) zTimer = setTimeout(render, 340);
+}
+function rectOf(ref) {
+  if (ref.t === 's') return { ...G.stock, w: G.cw, h: G.ch };
+  if (ref.t === 'f') return { ...G.f[ref.i], w: G.cw, h: G.ch };
+  const p = S.t[ref.i], g = G.t[ref.i];
+  const lastY = p.length ? E[last(p).id]._y : g.y;
+  return { x: g.x, y: g.y, w: G.cw, h: lastY - g.y + G.ch * 1.5 };
+}
+
+function build() {
+  const mk = (k, cls, html) => { const d = document.createElement('div'); d.className = 'slot ' + cls; d.dataset.k = k; d.innerHTML = html; board.appendChild(d); slots[k] = d; };
+  mk('S', 'stock', ''); mk('W', 'waste', '');
+  for (let i = 0; i < 8; i++) mk('F' + i, 'found', 'A');
+  for (let i = 0; i < 9; i++) mk('T' + i, 'tab', 'K');
+  for (let id = 0; id < 104; id++) {
+    const s = Math.floor(id / 13) % 4, r = id % 13 + 1;
+    const el = document.createElement('div');
+    el.className = 'card' + (isRed(s) ? ' red' : '');
+    el.dataset.id = id; el.setAttribute('role', 'button');
+    el.innerHTML = `<div class="in"><div class="face"><b class="rk${r === 10 ? ' ten' : ''}">${RANKS[r]}</b>` +
+      `<svg class="st" viewBox="0 0 100 100"><use href="#su${s}"/></svg><svg class="big" viewBox="0 0 100 100"><use href="#su${s}"/></svg></div></div>`;
+    board.appendChild(el); E[id] = el;
+  }
+  const n = document.createElement('div'); n.id = 'stockN'; board.appendChild(n);
+}
+
+/* ------------------------------------------------------------------ touch: tap a card to move it, or drag it */
+let ptr = null, lastEmptyTap = 0;
+function bad(id) { if (id != null) { const el = E[id]; el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } sfx('bad'); buzz([70, 60, 70]); }
+board.addEventListener('pointerdown', e => {
+  wake();
+  if (ptr && ptr.id !== e.pointerId) {   // a second finger: probably trying to zoom
+    if (ptr.drag) { ptr.drag.forEach(id => E[id].classList.remove('dragging')); render(); }
+    ptr = null; confused('zoom'); return;
+  }
+  if (busy || dlgOpen()) return;
+  clearHL();
+  const ce = e.target.closest('.card'), se = e.target.closest('.slot');
+  ptr = { id: e.pointerId, x0: e.clientX, y0: e.clientY, cid: ce ? +ce.dataset.id : null, slot: se ? se.dataset.k : null, drag: null, long: false };
+  if (ptr.cid != null) { const loc = locate(ptr.cid); if (loc && canPick(loc)) ptr.loc = loc; }
+  try { board.setPointerCapture(e.pointerId); } catch (_) {}
+  const me = ptr;
+  me.lt = setTimeout(() => { if (ptr === me && !me.drag) me.long = true; }, 800);
+});
+board.addEventListener('pointermove', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  const dx = e.clientX - ptr.x0, dy = e.clientY - ptr.y0;
+  if (!ptr.drag) {
+    if (!ptr.loc || Math.hypot(dx, dy) < 14) return;
+    ptr.drag = pileOf(ptr.loc.ref).slice(ptr.loc.idx).map(c => c.id);
+    ptr.drag.forEach((id, i) => { E[id].classList.add('dragging'); E[id].style.zIndex = 3000 + i; });
+  }
+  ptr.dx = dx; ptr.dy = dy;
+  ptr.drag.forEach(id => { const el = E[id]; el.style.transform = `translate(${el._x + dx}px,${el._y + dy}px)`; });
+});
+board.addEventListener('pointerup', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  const p = ptr; ptr = null; clearTimeout(p.lt);
+  if (p.drag) { p.drag.forEach(id => E[id].classList.remove('dragging')); drop(p, e); return; }
+  if (Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > 30) return;
+  if (p.long) confused('hold');
+  tap(p);
+});
+board.addEventListener('pointercancel', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  if (ptr.drag) ptr.drag.forEach(id => E[id].classList.remove('dragging'));
+  clearTimeout(ptr.lt); ptr = null; render();
+});
+board.addEventListener('contextmenu', e => e.preventDefault());
+
+function tap(p) {
+  const now = performance.now();
+  // a quick second tap right after a move: a double tap, not a new move
+  if (now - lastMoveAt < 400) { confused('dbl'); return; }
+  if (p.cid != null) {
+    const loc = locate(p.cid);
+    if (loc.ref.t === 's') { drawCard(); return; }
+    const c = pileOf(loc.ref)[loc.idx];
+    if (!c.up) { bad(c.id); if (!confused('faceDown')) toast(T('Diese Karte liegt verdeckt.<br><small>Legen Sie zuerst die Karten darauf woanders hin.</small>', 'This card is face down.<br><small>Move the cards on top of it first.</small>')); return; }
+    if (loc.ref.t === 'f') { toast(T('Karten auf den Ablagen oben bleiben dort liegen.', 'Cards on the top piles stay there.')); return; }
+    const to = canPick(loc) && bestTarget(loc);
+    // a folded or crowded run: the tap means "move this pile", so try where else it could be split
+    if (!to && loc.ref.t === 't') { const alt = otherSplit(loc); if (alt) { doMove(loc.ref, alt.idx, alt.to); return; } }
+    if (!canPick(loc)) { bad(c.id); if (!confused('noMove')) toast(T('Die Karten auf ' + the(c, 'dat') + ' liegen im Weg.', 'The cards on top of ' + the(c) + ' are in the way.')); return; }
+    if (!to) { bad(c.id); if (!confused('noMove')) toast(T('Für ' + the(c, 'acc') + ' ist gerade kein Platz frei.', 'There is no place for ' + the(c) + ' right now.')); return; }
+    doMove(loc.ref, loc.idx, to);
+    return;
+  }
+  if (p.slot === 'S') { drawCard(); return; }
+  if (now - lastEmptyTap > 15000) conf.empty = 0;
+  lastEmptyTap = now;
+  confused('empty');
+}
+function otherSplit(loc) {
+  const p = S.t[loc.ref.i], u = p.findIndex(c => c.up);
+  const ks = [];
+  for (let k = u; k < p.length; k++) if (k !== loc.idx && validRun(p, k)) ks.push(k);
+  ks.sort((a, b) => Math.abs(a - loc.idx) - Math.abs(b - loc.idx));
+  for (const k of ks) { const to = tabTarget(p[k], loc.ref.i, k > 0); if (to) return { idx: k, to }; }
+  return null;
+}
+function drop(p, e) {
+  const r = { x: E[p.drag[0]]._x + p.dx, y: E[p.drag[0]]._y + p.dy, w: G.cw, h: G.ch };
+  const overlap = q => Math.max(0, Math.min(r.x + r.w, q.x + q.w) - Math.max(r.x, q.x)) * Math.max(0, Math.min(r.y + r.h, q.y + q.h) - Math.max(r.y, q.y));
+  const inside = q => e.clientX >= q.x && e.clientX <= q.x + q.w && e.clientY >= q.y && e.clientY <= q.y + q.h;
+  const refs = [...[...Array(8)].map((_, i) => ({ t: 'f', i })), ...[...Array(9)].map((_, i) => ({ t: 't', i }))]
+    .filter(t => !(t.t === p.loc.ref.t && t.i === p.loc.ref.i));
+  let best = null, bestScore = 0, touchedWrong = false;
+  for (const t of refs) {
+    const q = rectOf(t), score = overlap(q) + (inside(q) ? r.w * r.h : 0);
+    if (score < r.w * r.h * .12) continue;
+    if (legal(p.loc, t)) { if (score > bestScore) { best = t; bestScore = score; } }
+    else touchedWrong = true;
+  }
+  if (best) { doMove(p.loc.ref, p.loc.idx, best); return; }
+  render();
+  if (touchedWrong) { bad(p.drag[0]); if (!confused('dragFail')) toast(T('Dort kann die Karte nicht hin.', 'That card can\'t go there.')); }
+}
+
+/* ------------------------------------------------------------------ the coach: notices when the gestures are not working out */
+const conf = { noMove: 0, faceDown: 0, hold: 0, dragFail: 0, empty: 0, dbl: 0, zoom: 0 };
+const NEED = { noMove: 3, faceDown: 2, hold: 2, dragFail: 2, empty: 3, dbl: 2, zoom: 1 };
+let lastTipAt = -1e9;
+function confused(kind) {   // true when a guide was shown
+  if (!prefs.coach) return false;   // the helper can be turned off in the settings
+  conf[kind]++;
+  if (conf[kind] < NEED[kind] || dlgOpen()) return false;
+  if ((tipsSeen[kind] || 0) >= 3 || performance.now() - lastTipAt < 20000) return false;
+  conf[kind] = 0; tipsSeen[kind] = (tipsSeen[kind] || 0) + 1; store('bs-tips', tipsSeen);
+  lastTipAt = performance.now();
+  TIPS[kind]();
+  return true;
+}
+const TIPS = {
+  noMove: () => dialog({ tip: true, title: T('Diese Karte kann noch nicht weg', 'That card can\'t move yet'), illus: tapDemo(),
+    body: T('<p>Gerade ist kein passender Platz für sie frei.</p><p>Tippen Sie auf den gelben Knopf <b>Tipp</b>, dann zeige ich Ihnen einen guten Zug.</p>',
+      '<p>There is no free place for it right now.</p><p>Tap the yellow <b>Hint</b> button and I will show you a good move.</p>'),
+    buttons: [{ label: 'OK' }, { label: T('Zug zeigen', 'Show me a move'), primary: true, fn: () => setTimeout(showHint, 250) }] }),
+  faceDown: () => dialog({ tip: true, title: T('Diese Karte liegt verdeckt', 'This card is face down'), illus: '<div class="demo rulesdemo felt">' + '<div class="mc back"></div><div class="mc back"></div>' + mini(9, 0) + '</div>',
+    body: T('<p>Blaue Karten liegen verdeckt. Sie lassen sich nicht bewegen.</p><p>Legen Sie die offenen Karten darauf woanders hin. Dann dreht sich die blaue Karte von selbst um.</p>',
+      '<p>Blue cards are face down. You cannot move them.</p><p>Move the open cards that lie on top. Then the blue card turns over by itself.</p>'),
+    buttons: [{ label: T('OK, verstanden', 'OK, got it'), primary: true }] }),
+  hold: () => dialog({ tip: true, title: T('Kurz antippen genügt', 'A short tap is enough'), illus: tapDemo(),
+    body: T('<p>Sie müssen den Finger nicht auf der Karte liegen lassen.</p><p>Tippen Sie einmal kurz darauf. Die Karte geht von selbst an einen guten Platz.</p>',
+      '<p>You don\'t need to hold your finger on a card.</p><p>Just tap it once, quickly. It moves to a good place by itself.</p>'),
+    buttons: [{ label: T('OK, verstanden', 'OK, got it'), primary: true }] }),
+  dragFail: () => dialog({ tip: true, title: T('Dort passt sie nicht hin', 'It can\'t go there'), illus: tapDemo(),
+    body: T('<p>Eine Karte kommt auf eine Karte, die <b>eins höher</b> ist – immer <b>Rot auf Schwarz</b> oder <b>Schwarz auf Rot</b>. Eine rote 7 kommt auf eine schwarze 8.</p><p>Einfacher: Tippen Sie die Karte nur an. Sie findet ihren Platz von selbst.</p>',
+      '<p>A card goes on a card <b>one higher</b> and of the <b>other colour</b>: <b>red on black</b> or <b>black on red</b>. A red 7 goes on a black 8.</p><p>Easier: just tap the card. It finds the right place by itself.</p>'),
+    buttons: [{ label: T('OK, verstanden', 'OK, got it'), primary: true }] }),
+  empty: () => dialog({ tip: true, title: T('Tippen Sie auf eine Karte', 'Tap on a card'), illus: tapDemo(),
+    body: T('<p>Zum Spielen tippen Sie auf eine Karte. Sie bewegt sich von selbst.</p><p>Für eine neue Karte tippen Sie auf den blauen Stapel ' + (prefs.left ? 'oben rechts' : 'oben links') + ' in der Ecke.</p>',
+      '<p>To play, tap a card. It moves by itself.</p><p>For a new card, tap the blue deck in the ' + (prefs.left ? 'top-right' : 'top-left') + ' corner.</p>'),
+    buttons: [{ label: 'OK' }, { label: T('Zug zeigen', 'Show me a move'), primary: true, fn: () => setTimeout(showHint, 250) }] }),
+  dbl: () => dialog({ tip: true, title: T('Einmal tippen genügt', 'One tap is enough'), illus: tapDemo(),
+    body: T('<p>Tippen Sie eine Karte nur einmal an. Ein zweites Tippen könnte aus Versehen eine andere Karte bewegen.</p><p>Falls das passiert, tippen Sie auf <b>Zurück</b>.</p>',
+      '<p>Tap a card only once. A second tap could move another card by mistake.</p><p>If that happens, tap <b>Undo</b>.</p>'),
+    buttons: [{ label: T('OK, verstanden', 'OK, got it'), primary: true }] }),
+  zoom: () => dialog({ tip: true, title: T('Karten zu klein?', 'Cards too small?'),
+    body: T('<p>Die Karten füllen schon den ganzen Bildschirm, deshalb lässt sich nichts vergrößern.</p><p>Ich kann aber die Zahlen auf den Karten größer machen.</p>',
+      '<p>The cards already fill the whole screen, so zooming is not possible.</p><p>I can make the numbers on the cards bigger instead.</p>'),
+    buttons: [{ label: T('Nein, danke', 'No, thanks') }, { label: prefs.xl ? T('Zahlen sind schon groß', 'Numbers are big') : T('Zahlen größer machen', 'Make numbers bigger'), primary: true, fn: () => { prefs.xl = true; savePrefs(); } }] })
+};
+// someone sits there without a move for a long time: offer the hint, once
+let lastActive = performance.now(), idleShown = false;
+function wake() { lastActive = performance.now(); idleShown = false; }
+setInterval(() => {
+  if (!prefs.coach || idleShown || busy || !S || S.won || dlgOpen() || document.hidden) return;
+  if (performance.now() - lastActive > 45000) {
+    idleShown = true;
+    toast(T('Brauchen Sie Hilfe? Tippen Sie auf den gelben Knopf <b>Tipp</b>.', 'Need a hand? Tap the yellow <b>Hint</b> button.'), 7000);
+    $('#bHint').classList.remove('pulse'); void $('#bHint').offsetWidth; $('#bHint').classList.add('pulse');
+  }
+}, 5000);
+
+/* ------------------------------------------------------------------ dialogs, messages, sound */
+function mini(r, s, cls = '') {
+  return `<div class="mc ${isRed(s) ? 'red' : ''} ${cls}"><b>${RANKS[r]}</b><svg class="s" viewBox="0 0 100 100"><use href="#su${s}"/></svg><svg class="bs" viewBox="0 0 100 100"><use href="#su${s}"/></svg></div>`;
+}
+const tapDemo = () => `<div class="demo tapdemo felt">${mini(8, 0, 'dst')}${mini(7, 1, 'src')}<div class="dh">👆</div></div>`;
+const deckDemo = () => `<div class="demo deckdemo felt"><div class="mc back deck"></div>${mini(5, 3, 'nw')}<div class="dh">👆</div></div>`;
+const dlgOpen = () => $('#dlg').classList.contains('open');
+function dialog({ title, body, illus, buttons, tip, after: onShown }) {
+  const d = $('#dlg'); d.innerHTML = '';
+  if (tip) body += '<p class="close-hint">' + T('Zum Schließen irgendwo tippen.', 'Tap anywhere to close.') + '</p>';
+  d.onclick = tip ? e => { if (!e.target.closest('button')) closeDlg(); } : null;
+  const p = document.createElement('div'); p.className = 'panel';
+  p.innerHTML = (illus ? `<div class="row"><div>${illus}</div><div class="txt"><h2>${title}</h2>${body}</div></div>` : `<h2>${title}</h2><div class="txt">${body}</div>`) + '<div class="btns"></div>';
+  buttons.forEach(b => {
+    const el = document.createElement('button'); el.className = 'big' + (b.primary ? ' primary' : ''); el.textContent = b.label;
+    el.onclick = () => { if (!b.keep) closeDlg(); b.fn && b.fn(); };
+    p.querySelector('.btns').appendChild(el);
+  });
+  d.appendChild(p); d.classList.add('open');
+  hideToast(); clearHL();
+  if (prefs.speak) say(title + '. ' + p.querySelector('.txt').innerText);
+  onShown && onShown(p);
+  const prim = p.querySelector('.primary'); prim && prim.focus({ preventScroll: true });
+}
+function closeDlg() { $('#dlg').classList.remove('open'); $('#dlg').innerHTML = ''; wake(); }
+let toastT = 0;
+function toast(html, ms = 3200, speakText) {
+  const t = $('#toast'); t.innerHTML = html; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(hideToast, ms);
+  if (prefs.speak) say(speakText || t.innerText);
+}
+function hideToast() { $('#toast').classList.remove('show'); }
+$('#toast').addEventListener('pointerdown', e => { e.stopPropagation(); hideToast(); });
+
+let AC = null;
+function tone(f, d, type = 'sine', vol = .07, delay = 0) {
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = AC.currentTime + delay, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + d);
+    o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + d);
+  } catch (e) {}
+}
+function sfx(k) {
+  if (!prefs.sound) return;
+  if (k === 'move') tone(520, .09);
+  else if (k === 'draw') tone(420, .07);
+  else if (k === 'found') { tone(660, .1); tone(880, .14, 'sine', .06, .08); }
+  else if (k === 'bad') tone(190, .22, 'triangle', .1);
+  else if (k === 'undo') tone(360, .08);
+  else if (k === 'hint') tone(740, .12, 'sine', .05);
+  else if (k === 'win') [523, 659, 784, 1047].forEach((f, i) => tone(f, .35, 'sine', .07, i * .16));
+}
+// the Android app vibrates natively (its web view ignores navigator.vibrate); a browser uses the web call
+function buzz(p) {
+  if (!prefs.buzz) return;
+  try { if (window.Android && Android.vibrate) Android.vibrate([].concat(p).join(',')); else if (navigator.vibrate) navigator.vibrate(p); } catch (e) {}
+}
+function say(text) {
+  if (!prefs.speak || !text) return;
+  text = String(text).replace(/\s+/g, ' ');
+  if (window.Android && Android.speak) { Android.speak(text); return; }
+  if (window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = .9; u.lang = DE ? 'de-DE' : 'en-US'; speechSynthesis.speak(u); }
+}
+
+/* ------------------------------------------------------------------ menu, settings, guide */
+function welcome(page = 0) {
+  const pages = [
+    { title: T('Willkommen bei Doppel-Klondike', 'Welcome to Double Klondike'), illus: '<div class="demo goaldemo felt">' + mini(1, 1) + mini(2, 1) + mini(3, 1) + mini(4, 1) + '</div>',
+      body: T('<p>Solitär mit <b>zwei Kartenspielen</b> (104 Karten). Ziel: Legen Sie alle Karten auf die <b>8 Ablagen oben</b>.</p><p>Jede Ablage beginnt mit einem <b>Ass</b> und geht bis zum <b>König</b> – immer nur ein Zeichen, z.&nbsp;B. nur Herz.</p>',
+        '<p>Solitaire with <b>two decks</b> (104 cards). The goal: put all cards on the <b>8 piles at the top</b>.</p><p>Each pile starts with an <b>Ace</b> and goes up to the <b>King</b>, all of one suit.</p>') },
+    { title: T('Karte antippen – fertig', 'Tap a card to move it'), illus: tapDemo(),
+      body: T('<p>Tippen Sie <b>einmal</b> auf eine Karte. Sie geht von selbst an einen guten Platz.</p><p>Wenn Sie möchten, können Sie Karten auch mit dem Finger ziehen.</p>',
+        '<p>Just <b>tap a card once</b>. It moves to a good place by itself.</p><p>You can also drag a card with your finger, if you like.</p>') },
+    { title: T('Karten auf dem Tisch', 'Cards on the table'), illus: '<div class="demo rulesdemo felt">' + mini(9, 0) + mini(8, 2) + mini(7, 3) + '</div>',
+      body: T('<p>Eine Karte kommt auf eine Karte, die <b>eins höher</b> ist – immer <b>Rot auf Schwarz</b> oder <b>Schwarz auf Rot</b>: eine schwarze 7 auf eine rote 8.</p><p>Auf einen freien Platz darf nur ein <b>König</b>.</p>',
+        '<p>Cards go on a card <b>one higher</b> and of the <b>other colour</b>: a black 7 on a red 8.</p><p>Only a <b>King</b> can go into an empty space.</p>') },
+    { title: T('Eine neue Karte?', 'Need a new card?'), illus: deckDemo(),
+      body: T(`<p>Tippen Sie auf den <b>blauen Stapel</b> ${prefs.left ? 'oben rechts' : 'oben links'} für eine neue Karte.</p><p>Nicht weiter? Tippen Sie auf den gelben Knopf <b>Tipp</b>. Ein Fehler? Tippen Sie auf <b>Zurück</b>.</p>`,
+        `<p>Tap the <b>blue deck</b> in the ${prefs.left ? 'top-right' : 'top-left'} corner for a new card.</p><p>Stuck? Tap the yellow <b>Hint</b> button. Made a mistake? Tap <b>Undo</b>.</p>`) }
+  ];
+  const pg = pages[page], last = page === pages.length - 1;
+  dialog({ ...pg, body: pg.body + '<div class="dots">' + pages.map((_, i) => `<i class="${i === page ? 'on' : ''}"></i>`).join('') + '</div>',
+    buttons: [...(page ? [{ label: T('◀ Vorige Seite', '◀ Back'), keep: true, fn: () => welcome(page - 1) }] : [{ label: T('Überspringen', 'Skip') }]),
+      last ? { label: T('Los geht\'s', 'Start playing'), primary: true, fn: () => store('bs-welcomed', 1) } : { label: T('Weiter ▶', 'Next ▶'), primary: true, keep: true, fn: () => welcome(page + 1) }] });
+}
+function menu() {
+  if (busy) return;
+  dialog({ title: T('Menü', 'Menu'), body: '<div class="menu">' +
+      `<button class="big primary" data-a="cont">▶ ${T('Weiterspielen', 'Continue playing')}</button><button class="big" data-a="new">${T('Neues Spiel', 'New game')}</button>` +
+      `<button class="big" data-a="help">${T('Spielanleitung', 'How to play')}</button><button class="big" data-a="set">${T('Einstellungen', 'Settings')}</button>` +
+      `<button class="big" data-a="stats">${T('Gewonnene Spiele', 'Games won')}</button><button class="big" data-a="hint">${T('Zug zeigen', 'Show me a move')}</button></div>`,
+    buttons: [], after: p => p.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
+      const a = b.dataset.a; closeDlg();
+      if (a === 'new') newGame(); else if (a === 'help') welcome(); else if (a === 'set') settings();
+      else if (a === 'hint') setTimeout(showHint, 200);
+      else if (a === 'stats') dialog({ title: T('Gewonnene Spiele', 'Games won'),
+        body: T(`<p class="stat">Sie haben ${stats.won} von ${stats.played} Spielen gewonnen.</p><p>Doppel-Klondike wird mit zwei Kartenspielen gespielt: 104 Karten. Nicht jedes Spiel lässt sich gewinnen – ein verlorenes Spiel ist also kein Grund zum Ärgern!</p>`,
+          `<p class="stat">You won ${stats.won} of ${stats.played} games.</p><p>Double Klondike is played with two decks: 104 cards. Not every game can be won, so don't worry about a lost one!</p>`),
+        buttons: [{ label: T('Schließen', 'Close'), primary: true }] });
+    }) });
+}
+const SETTINGS = [
+  ['coach', T('Hilfe-Hinweise', 'Helper tips')], ['xl', T('Extra große Zahlen', 'Extra-big numbers')],
+  ['tint', T('Rote Karten rosa tönen', 'Pink tint on red cards')], ['speak', T('Karten vorlesen', 'Read cards aloud')],
+  ['sound', T('Töne', 'Sounds')], ['buzz', 'Vibration'], ['left', T('Stapel auf der rechten Seite', 'Deck on the right side')]
+];
+function savePrefs() { store('bs-prefs', prefs); geom(); render(); }
+function settings() {
+  dialog({ title: T('Einstellungen', 'Settings'), body: '<div class="sets">' + SETTINGS.map(([k, l]) =>
+      `<button class="set" role="switch" data-k="${k}" aria-checked="${prefs[k]}"><span>${l}</span><span class="sw"></span></button>`).join('') + '</div><div class="upd" id="upd"></div>',
+    buttons: [{ label: T('Fertig', 'Done'), primary: true }],
+    after: p => { updBlock(); p.querySelectorAll('.set').forEach(b => b.onclick = () => {
+      const k = b.dataset.k; prefs[k] = !prefs[k]; b.setAttribute('aria-checked', prefs[k]); savePrefs();
+      if (k === 'speak' && prefs.speak) say(T('Die Karten werden jetzt vorgelesen.', 'Cards will be read aloud.'));
+      if (k === 'sound' && prefs.sound) sfx('found');
+      if (k === 'buzz' && prefs.buzz) buzz(80);
+    }); } });
+}
+
+/* updates (inside the app only): they come quietly while the game is closed; switched on once here */
+function updBlock() {
+  const box = $('#upd'); if (!box) return;
+  if (!(window.Android && Android.updateInfo)) { box.remove(); return; }
+  let u = {}; try { u = JSON.parse(Android.updateInfo()); } catch (e) {}
+  let t = '<h3>Updates</h3><p>' + T('Version ', 'Version ') + (u.current || '?') + '</p>';
+  if (u.auto) t += '<p>✓ ' + T('Automatische Updates sind an. Neue Versionen kommen still, wenn das Spiel geschlossen ist.', 'Automatic updates are on. New versions arrive quietly while the game is closed.') + '</p>';
+  else if (u.quiet) t += '<p>' + (u.canInstall ? '' : T('Zuerst „Aus dieser Quelle zulassen“ einschalten, dann zurückkommen. ', 'First switch on “Allow from this source”, then come back. ')) +
+    T('Einmal einschalten (Android fragt einmal nach), danach kommen Updates still.', 'Switch on once (Android asks one time); after that updates arrive quietly.') +
+    '</p><button class="big primary" data-u="auto">' + T('Automatische Updates einschalten', 'Turn on automatic updates') + '</button>';
+  else t += '<p>' + T('Auf diesem Handy muss jedes Update einmal bestätigt werden.', 'On this phone every update has to be confirmed once.') + '</p>';
+  const st = { checking: T('Suche nach Updates …', 'Looking for updates …'), downloading: T('Update wird geladen …', 'Downloading the update …'),
+    offline: T('Keine Verbindung. Später noch einmal versuchen.', 'No connection. Please try again later.'), failed: T('Das Update hat nicht geklappt.', 'The update did not work.') }[u.status];
+  if (st) t += '<p>' + st + '</p>';
+  if (u.available) t += '<button class="big primary" data-u="now">' + T('Version ', 'Install version ') + u.name + T(' installieren', '') + '</button>';
+  t += '<button class="big" data-u="check">' + T('Nach Updates suchen', 'Check for updates') + '</button>';
+  box.innerHTML = t;
+  box.querySelectorAll('[data-u]').forEach(b => b.onclick = () => {
+    const k = b.dataset.u;
+    if (k === 'auto') Android.autoUpdates(); else if (k === 'now') Android.installUpdate(); else Android.checkUpdate();
+  });
+}
+window.onUpdate = updBlock;
+
+// the fixed words in the page
+document.title = T('Großes Solitär', 'Big Solitaire');
+$('#board').setAttribute('aria-label', T('Kartentisch', 'Card table'));
+[['#bUndo', 'Zurück', 'Undo', 'Letzten Zug zurücknehmen', 'Undo the last move'], ['#bHint', 'Tipp', 'Hint', 'Einen guten Zug zeigen', 'Show me a good move'],
+ ['#bMenu', 'Menü', 'Menu', 'Menü: neues Spiel, Hilfe und Einstellungen', 'Menu: new game, help and settings']].forEach(([q, de, en, ade, aen]) => {
+  $(q).lastChild.textContent = T(de, en); $(q).setAttribute('aria-label', T(ade, aen));
+});
+$('#rotate').lastChild.remove(); $('#rotate').lastChild.remove(); $('#rotate').lastChild.remove();
+$('#rotate').insertAdjacentHTML('beforeend', T('Bitte drehen Sie Ihr Handy quer,<br>um zu spielen.', 'Please turn your phone sideways<br>to play.'));
+
+$('#bUndo').addEventListener('click', () => { wake(); undo(); });
+$('#bHint').addEventListener('click', () => { wake(); $('#bHint').classList.remove('pulse'); showHint(); });
+$('#bMenu').addEventListener('click', () => { wake(); menu(); });
+
+// Android: back closes what is open; the app leaves only from the plain table
+window.appBack = () => {
+  if (dlgOpen()) { closeDlg(); return true; }
+  if ($('#toast').classList.contains('show')) { hideToast(); return true; }
+  return false;
+};
+window.setInsets = (l, t, r, b) => { INS = { l: +l || 0, t: +t || 0, r: +r || 0, b: +b || 0 }; geom(); render(); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+addEventListener('resize', () => { geom(); render(); });
+
+/* ------------------------------------------------------------------ start */
+build();
+const saved = load('bs-game');
+function sound(st) {   // a saved game holds all 104 cards, each once
+  try { const ids = [...st.stock, ...st.waste, ...st.f.flat(), ...st.t.flat()].map(c => c.id); return ids.length === 104 && new Set(ids).size === 104; }
+  catch (e) { return false; }
+}
+if (saved && saved.S && !saved.S.won && sound(saved.S)) { S = saved.S; U = (saved.U || []).filter(u => { try { return sound(JSON.parse(u)); } catch (e) { return false; } }); }
+else { stats.played++; store('bs-stats', stats); deal(); }
+geom(); after();   // after(): a dealt Ace goes straight up
+if (!load('bs-welcomed')) setTimeout(() => welcome(0), 500);
+</script>
+</body>
+</html>
